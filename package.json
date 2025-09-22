@@ -1,0 +1,28 @@
+{
+  "name": "wajacker",
+  "version": "3.0.0",
+  "description": "A WhatsApp Jack created using Node.js",
+  "main": "wajacker.js",
+  "scripts": {
+    "start": "pm2 start wajacker.js --deep-monitoring --attach --name WAJACKER",
+    "stop": "pm2 stop all",
+    "restart": "pm2 restart ecosystem.config.js"
+  },
+  "dependencies": {
+    "adm-zip": "latest",
+    "axios": "latest",
+    "baileys": "npm:baileys-mod",
+    "cheerio": "^1.1.2",
+    "cherio": "latest",
+    "dotenv": "latest",
+    "express": "latest",
+    "jimp": "^0.16.13",
+    "megajs": "latest",
+    "moment-timezone": "latest",
+    "mongodb": "latest",
+    "path": "latest",
+    "pino": "latest",
+    "pm2": "latest",
+    "util": "latest"
+  }
+}
