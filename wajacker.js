@@ -1,6 +1,7 @@
 
 const {
   default: makeWASocket,
+  useMultiFileAuthState,
   DisconnectReason,
   jidNormalizedUser,
   getContentType,
@@ -9,7 +10,7 @@ const {
   downloadContentFromMessage,
   proto,
   makeCacheableSignalKeyStore
-} = require('whiskeysockets/baileys');
+} = require('baileys');
 const path = require('path');
 const fs = require('fs');
 const P = require('pino');
@@ -19,7 +20,6 @@ const axios = require('axios');
 const moment = require('moment-timezone');
 const { exec } = require('child_process');
 const express = require("express");
-const AdmZip = require('adm-zip');
 const { MongoClient } = require('mongodb');
 
 
