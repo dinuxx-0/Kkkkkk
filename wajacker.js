@@ -1074,10 +1074,21 @@ async function autoStartFileSessions() {
         }
       }
 
-      if (connection === 'close') {
+      sock.ev.on("connection.update", async (update) => {
+    const { connection, lastDisconnect } = update;
+    if (connection === "close") {
         const reason = lastDisconnect?.error?.output?.statusCode;
-        console.log(`Session ${session} closed. Reason:`, reason);
-        console.log(`Last disconnect error:`, lastDisconnect?.error);
+        console.log("Session closed. Reason:", reason);
+
+        if (reason === 428) {
+            console.log("Connection terminated. Retrying...");
+            // restart session
+            startSession(session); 
+        }
+    } else if (connection === "open") {
+        console.log("✅ Connected:", session);
+    }
+  });
 
         // Clear pairing timeout if any
         if (connections[session] && connections[session].pairingTimeout) {
@@ -1091,10 +1102,15 @@ async function autoStartFileSessions() {
           delete connections[session];
         } else {
           // Add retry limit to prevent infinite loops
-          if (!connections[session].retryCount) {
-            connections[session].retryCount = 0;
-          }
-          connections[session].retryCount++;
+          if (!connections[session]) {
+    console.log(`Session ${session} not found, skipping retry...`);
+    return;
+}
+
+    if (!connections[session].retryCount) {
+        connections[session].retryCount = 0;
+}
+      connections[session].retryCount++;
 
           if (connections[session].retryCount < 5) {
             const delay = Math.min(1000 * Math.pow(2, connections[session].retryCount), 30000); // Exponential backoff, max 30s
