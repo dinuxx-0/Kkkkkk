@@ -1120,8 +1120,8 @@ async function autoStartFileSessions() {
             console.log(`Session ${session} failed to connect after 5 attempts, giving up`);
             delete connections[session];
           }
-        }
-      } else if (connection === 'connecting') {
+        
+        } else if (connection === 'connecting') {
         console.log(`Session ${session} is connecting...`);
         console.log(`Session ${session} websocket state:`, conn.ws ? conn.ws.readyState : 'no websocket');
       } else if (connection === 'open') {
