@@ -1,4 +1,4 @@
-t
+
 const {
   default: makeWASocket,
   DisconnectReason,
@@ -1489,4 +1489,3 @@ module.exports = {
     }
   }]
 };
-```
