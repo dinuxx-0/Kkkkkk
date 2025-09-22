@@ -28,36 +28,48 @@ let db;
 let sessionHealthMonitor = new Map(); // Track session health
 let sessionMetadata = new Map(); // Store session metadata
 
-async function connectMongo() {
+async function connectMongo(retries = 3, delay = 2000) {
   if (db) return db;
   if (!config.MONGODB_URI) {
     console.error('MONGODB_URI is not set in settings');
     return null;
   }
-  try {
-    console.log('Attempting to connect to MongoDB...');
-    client = new MongoClient(config.MONGODB_URI, {
-      serverSelectionTimeoutMS: 5000,
-      connectTimeoutMS: 10000,
-      socketTimeoutMS: 45000,
-      maxPoolSize: 10,
-      serverSelectionTimeoutMS: 5000,
-      heartbeatFrequencyMS: 10000,
-    });
-    await client.connect();
-    db = client.db('wajacker');
-    console.log('Successfully connected to MongoDB');
-    return db;
-  } catch (error) {
-    console.error('Failed to connect to MongoDB:', error.message);
-    console.error('MongoDB URI:', config.MONGODB_URI.replace(/:([^:@]{4})[^:@]*@/, ':****@')); // Hide password in logs
-    console.error('MongoDB connection error details:', {
-      name: error.name,
-      code: error.code,
-      codeName: error.codeName,
-      message: error.message
-    });
-    return null;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      console.log(`Attempting to connect to MongoDB (attempt ${attempt}/${retries})...`);
+      client = new MongoClient(config.MONGODB_URI, {
+        serverSelectionTimeoutMS: 30000,  // 30s to select server
+        connectTimeoutMS: 30000,         // 30s to establish connection
+        socketTimeoutMS: 60000,          // 60s for socket operations
+        maxPoolSize: 10,
+        heartbeatFrequencyMS: 10000,
+        retryWrites: true,               // Auto-retry writes
+        w: 'majority',                   // Ensure majority writes
+        ssl: true,                       // Explicitly enable SSL
+        authSource: 'admin'              // Match URI
+      });
+      await client.connect();
+      db = client.db('wajacker'); // Use correct DB name
+      console.log('Successfully connected to MongoDB');
+      return db;
+    } catch (error) {
+      console.error(`MongoDB connection attempt ${attempt} failed:`, error.message);
+      console.error('MongoDB URI (redacted):', config.MONGODB_URI.replace(/:([^:@]{4})[^:@]*@/, ':****@'));
+      console.error('MongoDB error details:', {
+        name: error.name,
+        code: error.code,
+        codeName: error.codeName,
+        message: error.message
+      });
+      if (attempt < retries) {
+        console.log(`Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay *= 2; // Exponential backoff
+      } else {
+        console.error('All connection attempts failed.');
+        return null;
+      }
+    }
   }
 }
 
