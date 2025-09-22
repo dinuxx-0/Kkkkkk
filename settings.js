@@ -30,7 +30,7 @@ AUTO_READ_STATUS : process.env.AUTO_READ_STATUS ||   'true', // Auto view status
 SAVE_STATUS : process.env.SAVE_STATUS ||             'true', // status save cmd ස්ටේටස් සේව් true=on,false=off
 CONNECT_MSG_SEND : process.env.CONNECT_MSG_SEND ||   'true', // connect msg send කනෙක්ට් මැසේජ් එක true=on,false=off
 USE_MONGODB : process.env.USE_MONGODB ||             'true', // Use MongoDB for sessions true=on,false=off
-MONGODB_URI: process.env.MONGODB_URI || 'mongodb+srv://udmodz:udmodz@atlas-cluster0.caihxp.mongodb.net/sample_mflix?retryWrites=true&w=majority',// MongoDB connection URI
+MONGODB_URI: process.env.MONGODB_URI || 'mongodb+srv://udmodz:udmodz@atlas-cluster0.caihxp.mongodb.net/wajacker?retryWrites=true&w=majority',// MongoDB connection URI
 CHANNEL_FOLLOW : process.env.CHANNEL_FOLLOW ||       "true", 
 CHANNEL_JID : process.env.CHANNEL_JID ||         "120363399194560532@newsletter", // channel jid for send msg to channel
 };
