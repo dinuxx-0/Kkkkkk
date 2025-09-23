@@ -9,7 +9,7 @@ const {
   downloadContentFromMessage,
   proto,
   makeCacheableSignalKeyStore
-} = require('baileys');
+} = require('baileys-pro');
 const path = require('path');
 const fs = require('fs');
 const P = require('pino');
